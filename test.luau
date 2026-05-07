@@ -61,5 +61,5 @@ function Update(Time, Commands, MoveQuery)
 	end
 end
 
-Ecs:RegisterSystem(Setup, Ecs:Startup(), { Ecs:Time(), Ecs:Commands(), Score })
+Ecs:RegisterSystem(Setup, Ecs:Startup(), { Ecs:Commands(), Score })
 Ecs:RegisterSystem(Update, Ecs:Update(), { Ecs:Time(), Ecs:Commands(), MoveQuery })
