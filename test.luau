@@ -1,4 +1,4 @@
-local Ecs = require("@Ecs") :: any -- this would be a scripts view into the ecs
+local Ecs = require("Ecs") :: any
 
 local Position = Ecs:RegisterComponent({ x = 0, y = 0, z = 0 })
 local Velocity = Ecs:RegisterComponent({ x = 0, y = 0, z = 0 })
@@ -33,7 +33,7 @@ Ecs:Observe(OnDeath, OnDeathObserver, { Ecs:Commands() })
 
 function Setup(Commands, Score)
 	Commands:Spawn({
-		[EnemyTag] = Ecs:Default(), -- marker to tell ecs to just fill with default values
+		[EnemyTag] = Ecs:Default(),
 		[Health] = Ecs:Default(),
 		[Position] = Ecs:Default(),
 		[Velocity] = { x = 10, y = 0, z = 0 },
@@ -48,15 +48,15 @@ local MoveQuery = Ecs:Query({
 	With = { EnemyTag },
 })
 
-function Update(Time, Commands, MoveQuery)
+function Update(Time, Commands, MoveQuery) -- values snapshotted from rust
 	local dt = Time.dt()
 
 	for entity, pos, vel in MoveQuery do
-		pos.x += vel.x * dt
+		pos.x += vel.x * dt -- this is in pure luau and once the function finishes it flushes back to rust
 		pos.y += vel.y * dt
 		pos.z += vel.z * dt
 
-		Commands:Trigger(entity, OnHit, { damage = 50 })
+		Commands:Trigger(entity, OnHit, { damage = 50 }) -- puts in a queue and flushes when function ends
 		Commands:Trigger(entity, OnHit, { damage = 60 })
 	end
 end

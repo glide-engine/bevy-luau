@@ -1,3 +1,5 @@
+mod dynamic_ecs;
+
 use bevy::prelude::*;
 use mluau::prelude::*;
 
@@ -28,6 +30,8 @@ fn setup_lua(mut commands: Commands) {
     )
     .exec()
     .unwrap();
+
+    dynamic_ecs::test_register_component_extracts_fields();
 
     commands.write_message(AppExit::Success);
 }
