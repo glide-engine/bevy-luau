@@ -1,20 +1,18 @@
-local Ecs = 0; -- silences type errors for lsp
+local Ecs = require("@Ecs") :: any -- this would be a scripts view into the ecs
 
-local Position = Ecs:RegisterComponent { x = 0, y = 0, z = 0 }
-local Velocity = Ecs:RegisterComponent { x = 0, y = 0, z = 0 }
-local Health = Ecs:RegisterComponent { current = 100, max = 100 }
-local EnemyTag = Ecs:RegisterComponent {}
+local Position = Ecs:RegisterComponent({ x = 0, y = 0, z = 0 })
+local Velocity = Ecs:RegisterComponent({ x = 0, y = 0, z = 0 })
+local Health = Ecs:RegisterComponent({ current = 100, max = 100 })
+local EnemyTag = Ecs:RegisterComponent({})
 
-local OnHit = Ecs:RegisterEvent { damage = 0 }
-local OnDeath = Ecs:RegisterEvent {}
+local OnHit = Ecs:RegisterEvent({ damage = 0 })
+local OnDeath = Ecs:RegisterEvent({})
 
 local Score = Ecs:RegisterResource({ value = 0 })
 
-local HealthQuery = Ecs:Query {
+local HealthQuery = Ecs:Query({
 	Mutable = { Health },
-}
-
-Ecs:Require(EnemyTag, { Position, Velocity, Health })
+})
 
 function OnHitObserver(entity, hit, Commands, HealthQuery)
 	local hp = HealthQuery:get(entity)
@@ -34,19 +32,21 @@ Ecs:Observe(OnHit, OnHitObserver, { Ecs:Commands(), HealthQuery })
 Ecs:Observe(OnDeath, OnDeathObserver, { Ecs:Commands() })
 
 function Setup(Commands, Score)
-	Commands:Spawn {
-		[EnemyTag] = {},
+	Commands:Spawn({
+		[EnemyTag] = { Ecs:Default() }, -- marker to tell ecs to just fill with default values
+		[Health] = { Ecs:Default() },
+		[Position] = { Ecs:Default() },
 		[Velocity] = { x = 10, y = 0, z = 0 },
-	}
+	})
 
 	Score.value += 3
 end
 
-local MoveQuery = Ecs:Query {
+local MoveQuery = Ecs:Query({
 	Mutable = { Position },
 	Immutable = { Velocity },
 	With = { EnemyTag },
-}
+})
 
 function Update(Time, Commands, MoveQuery)
 	local dt = Time.dt()
