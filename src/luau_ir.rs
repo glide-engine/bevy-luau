@@ -6,6 +6,7 @@ use bevy::ptr::OwningPtr;
 use lasso::{Rodeo, Spur};
 use mluau::prelude::*;
 use smallvec::SmallVec;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ptr::NonNull;
 use std::{
     alloc::Layout,
@@ -86,32 +87,83 @@ pub struct DynamicComponentSchema {
     pub name: String,
     pub fields: HashMap<Spur, (usize, LuauFieldType)>, // offset, field
     pub layout: Layout,
+    pub signature: u64,
 }
 
 impl DynamicComponentSchema {
     pub fn build(name: String, fields: &[(Spur, LuauFieldType)]) -> Self {
         let mut struct_layout = Layout::from_size_align(0, 1).unwrap();
-        let mut field_offsets = HashMap::with_capacity(fields.len());
+        let mut field_offsets = HashMap::new();
 
-        let mut fields = fields.to_vec();
-        fields.sort_by_key(|(spur, _)| *spur);
+        let mut sorted = fields.to_vec();
+        sorted.sort_by_key(|(spur, _)| *spur);
 
-        for (spur, field_type) in fields {
-            let field_layout = field_type.layout();
+        for (spur, field_type) in &sorted {
+            let (new_layout, offset) = struct_layout.extend(field_type.layout()).unwrap();
 
-            let (new_layout, offset) = struct_layout.extend(field_layout).unwrap();
             struct_layout = new_layout;
-
-            field_offsets.insert(spur, (offset, field_type));
+            field_offsets.insert(*spur, (offset, *field_type));
         }
 
         let layout = struct_layout.pad_to_align();
+        let signature = Self::compute_signature(fields);
 
         Self {
             name,
             fields: field_offsets,
             layout,
+            signature,
         }
+    }
+
+    pub fn compute_signature(fields: &[(Spur, LuauFieldType)]) -> u64 {
+        let mut hasher = DefaultHasher::new();
+
+        let mut sorted = fields.to_vec();
+        sorted.sort_by_key(|(spur, _)| *spur);
+
+        for (spur, ty) in sorted {
+            spur.hash(&mut hasher);
+
+            std::mem::discriminant(&ty).hash(&mut hasher);
+
+            if let LuauFieldType::Buffer(n) = ty {
+                // buffer carries data (its length) so we must hash it specially
+                n.hash(&mut hasher)
+            }
+        }
+
+        hasher.finish()
+    }
+}
+
+pub struct SchemaRegistry {
+    pub schemas: HashMap<String, DynamicComponentSchema>,
+}
+
+impl SchemaRegistry {
+    pub fn register(&mut self, schema: DynamicComponentSchema) -> Result<(), String> {
+        match self.schemas.get(&schema.name) {
+            Some(existing) => {
+                if existing.signature != schema.signature {
+                    return Err(format!(
+                        "Schema '{}' is immutable. Attempted modification detected.",
+                        schema.name
+                    ));
+                }
+
+                Ok(())
+            }
+
+            None => {
+                self.schemas.insert(schema.name.clone(), schema);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn get(&self, schema_name: &str) -> Option<&DynamicComponentSchema> {
+        self.schemas.get(schema_name)
     }
 }
 
@@ -138,9 +190,12 @@ pub unsafe fn insert_luau_data(
     world: &mut World,
     entity: Entity,
     component_id: ComponentId,
-    schema: &DynamicComponentSchema,
+    registry: &SchemaRegistry,
+    schema_name: &str,
     data: &LuauFrameIrLayout,
 ) {
+    let schema = registry.get(schema_name).expect("Schema not registered");
+
     unsafe {
         let scratch_ptr = std::alloc::alloc_zeroed(schema.layout);
         if scratch_ptr.is_null() {
