@@ -85,7 +85,7 @@ impl LuauFieldType {
 #[derive(Debug)]
 pub struct DynamicComponentSchema {
     pub name: String,
-    pub fields: HashMap<Spur, (usize, LuauFieldType)>, // offset, field
+    pub fields: Vec<(Spur, (usize, LuauFieldType))>, // offset, field
     pub layout: Layout,
     pub signature: u64,
 }
@@ -93,16 +93,18 @@ pub struct DynamicComponentSchema {
 impl DynamicComponentSchema {
     pub fn build(name: String, fields: &[(Spur, LuauFieldType)]) -> Self {
         let mut struct_layout = Layout::from_size_align(0, 1).unwrap();
-        let mut field_offsets = HashMap::new();
 
         let mut sorted = fields.to_vec();
         sorted.sort_by_key(|(spur, _)| *spur);
+
+        let mut out = Vec::with_capacity(sorted.len());
 
         for (spur, field_type) in &sorted {
             let (new_layout, offset) = struct_layout.extend(field_type.layout()).unwrap();
 
             struct_layout = new_layout;
-            field_offsets.insert(*spur, (offset, *field_type));
+
+            out.push((*spur, (offset, *field_type)));
         }
 
         let layout = struct_layout.pad_to_align();
@@ -110,7 +112,7 @@ impl DynamicComponentSchema {
 
         Self {
             name,
-            fields: field_offsets,
+            fields: out,
             layout,
             signature,
         }
@@ -134,6 +136,10 @@ impl DynamicComponentSchema {
         }
 
         hasher.finish()
+    }
+
+    fn get_field(&self, spur: &Spur) -> Option<(usize, LuauFieldType)> {
+        self.fields.iter().find(|(s, _)| s == spur).map(|(_, v)| *v)
     }
 }
 
@@ -203,7 +209,7 @@ pub unsafe fn insert_luau_data(
         }
 
         for (spur, val) in &data.fields {
-            if let Some(&(offset, field_type)) = schema.fields.get(spur) {
+            if let Some((offset, field_type)) = schema.get_field(spur) {
                 let field_ptr = scratch_ptr.add(offset);
 
                 match val {
