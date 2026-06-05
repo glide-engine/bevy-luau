@@ -9,6 +9,7 @@ use std::{
     alloc::{Layout, alloc_zeroed, dealloc},
     collections::HashMap,
     ptr::NonNull,
+    sync::Weak,
 };
 
 pub struct ScriptingPlugin;
@@ -308,6 +309,25 @@ impl DynamicComponentBridge {
         }
 
         Ok(Some(table))
+    }
+}
+
+struct Ecs<'a> {
+    runtime: &'a mut ScriptingRuntime,
+    schema_registry: &'a mut SchemaRegistry,
+    world: &'a mut World,
+}
+
+impl LuaUserData for Ecs<'_> {
+    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method_mut("RegisterComponent", |lua, this, args: LuaTable| {
+            this.schema_registry.register(
+                this.world,
+                "__luau".to_string(),
+                args.pairs().map(|kv: (LuaString, LuaValue)| {}),
+            );
+            Ok(())
+        });
     }
 }
 
