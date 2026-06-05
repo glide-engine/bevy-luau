@@ -9,7 +9,6 @@ use std::{
     alloc::{Layout, alloc_zeroed, dealloc},
     collections::HashMap,
     ptr::NonNull,
-    sync::Weak,
 };
 
 pub struct ScriptingPlugin;
@@ -22,38 +21,9 @@ impl Plugin for ScriptingPlugin {
     }
 }
 
-pub enum LuaSchedule {
-    Startup,
-    Update,
-}
-
-pub enum Access {
-    With(ComponentId),
-    Read(ComponentId),
-    Write(ComponentId),
-    Optional(Box<Access>),
-}
-
-pub struct DynamicQuery {
-    terms: Vec<Access>,
-}
-
-pub enum LuaParamKind {
-    Query(DynamicQuery),
-    Resource,
-}
-
 #[derive(Default)]
 pub struct ScriptingRuntime {
     pub lua: Lua,
-    pub systems: Vec<LuaSystemDescriptor>,
-    pub schemas: HashMap<ComponentId, DynamicComponentSchema>,
-}
-
-pub struct LuaSystemDescriptor {
-    func: LuaFunction,
-    schedule: LuaSchedule,
-    params: Vec<LuaParamKind>,
 }
 
 #[derive(Default)]
@@ -309,25 +279,6 @@ impl DynamicComponentBridge {
         }
 
         Ok(Some(table))
-    }
-}
-
-struct Ecs<'a> {
-    runtime: &'a mut ScriptingRuntime,
-    schema_registry: &'a mut SchemaRegistry,
-    world: &'a mut World,
-}
-
-impl LuaUserData for Ecs<'_> {
-    fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method_mut("RegisterComponent", |lua, this, args: LuaTable| {
-            this.schema_registry.register(
-                this.world,
-                "__luau".to_string(),
-                args.pairs().map(|kv: (LuaString, LuaValue)| {}),
-            );
-            Ok(())
-        });
     }
 }
 
