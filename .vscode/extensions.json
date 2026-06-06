@@ -1,0 +1,9 @@
+{
+    "recommendations": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "JohnnyMorganz.luau-lsp",
+        "JohnnyMorganz.stylua",
+        "fill-labs.dependi"
+    ]
+}

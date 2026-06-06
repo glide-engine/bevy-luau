@@ -1,0 +1,7 @@
+{
+    "luau-lsp.sourcemap.enabled": false,
+    "luau-lsp.sourcemap.autogenerate": false,
+    "luau-lsp.types.definitionFiles": {
+        "globals": ".luau/globals.d.luau"
+    }  
+}
