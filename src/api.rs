@@ -87,7 +87,6 @@ pub struct TriggerCmd {
     pub data_table: LuaTable,
 }
 
-// Replaced mut with Rc<RefCell>
 pub struct LuaCommandsHandle(pub Rc<RefCell<CommandBuffer>>);
 
 impl LuaUserData for LuaCommandsHandle {
@@ -127,7 +126,6 @@ impl LuaUserData for LuaCommandsHandle {
             |_, this, (entity_bits, event_ud, data): (i64, LuaAnyUserData, LuaTable)| {
                 let entity = Entity::from_bits(entity_bits as u64);
                 let event_id = event_ud.borrow::<LuaComponentMarker>()?.0;
-
                 this.0.borrow_mut().triggers.push(TriggerCmd {
                     entity,
                     event_id,
@@ -192,9 +190,7 @@ impl LuaUserData for EcsHandle {
             |lua, _, (func, sched_ud, params_tbl): (LuaFunction, LuaAnyUserData, LuaTable)| {
                 let schedule = sched_ud.borrow::<ScheduleMarker>()?.0;
                 let params = parse_lua_params(&params_tbl)?;
-
                 crate::systems::with_ctx(lua, |ctx| {
-                    // Removed unsafe raw pointer mutation.
                     ctx.runtime.borrow_mut().systems.push(LuaSystemDescriptor {
                         func,
                         schedule,
@@ -210,9 +206,7 @@ impl LuaUserData for EcsHandle {
             |lua, _, (event_ud, func, params_tbl): (LuaAnyUserData, LuaFunction, LuaTable)| {
                 let event_id = event_ud.borrow::<LuaComponentMarker>()?.0;
                 let params = parse_lua_params(&params_tbl)?;
-
                 crate::systems::with_ctx(lua, |ctx| {
-                    // Removed unsafe raw pointer mutation.
                     ctx.runtime
                         .borrow_mut()
                         .observers
@@ -228,7 +222,6 @@ impl LuaUserData for EcsHandle {
     }
 }
 
-// Simplified
 pub fn parse_lua_params(table: &LuaTable) -> LuaResult<Vec<LuaParam>> {
     table
         .sequence_values::<LuaAnyUserData>()
@@ -258,7 +251,6 @@ pub struct SnapshotRow {
 
 pub struct QuerySnapshot {
     pub desc: LuaQuery,
-    // Prevent memory bloat
     pub rows: Rc<Vec<SnapshotRow>>,
 }
 
@@ -281,7 +273,6 @@ impl LuaUserData for QuerySnapshot {
         methods.add_meta_method(LuaMetaMethod::Iter, |lua, this, ()| {
             let rows = Rc::clone(&this.rows);
             let mut index = 0usize;
-
             lua.create_function_mut(move |_, ()| {
                 if index >= rows.len() {
                     return Ok(LuaMultiValue::new());
