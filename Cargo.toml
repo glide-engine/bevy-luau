@@ -25,3 +25,12 @@ strip = "debuginfo"
 lto = "fat"
 panic = "abort"
 codegen-units = 1
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+allow_attributes_without_reason = "forbid"
+
+type_complexity = "allow"
+too_many_arguments = "allow"
+needless_pass_by_value = "allow"

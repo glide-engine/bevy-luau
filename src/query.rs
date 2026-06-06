@@ -52,18 +52,18 @@ pub struct QuerySnapshot {
 impl LuaUserData for QuerySnapshot {
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("get", |_, this, entity_bits: i64| {
-            let entity = Entity::from_bits(entity_bits as u64);
-            match this.rows.iter().find(|r| r.entity == entity) {
-                Some(row) => {
+            let entity = Entity::from_bits(entity_bits.cast_unsigned());
+            this.rows.iter().find(|r| r.entity == entity).map_or_else(
+                || Ok(LuaMultiValue::new()),
+                |row| {
                     let vals: Vec<LuaValue> = row
                         .mutable_tables
                         .iter()
                         .map(|t| LuaValue::Table(t.clone()))
                         .collect();
                     Ok(LuaMultiValue::from_vec(vals))
-                }
-                None => Ok(LuaMultiValue::new()),
-            }
+                },
+            )
         });
 
         methods.add_meta_method(LuaMetaMethod::Iter, |lua, this, ()| {
@@ -75,7 +75,7 @@ impl LuaUserData for QuerySnapshot {
                 }
                 let row = &rows[index];
                 index += 1;
-                let mut vals = vec![LuaValue::Integer(row.entity.to_bits() as i64)];
+                let mut vals = vec![LuaValue::Integer(row.entity.to_bits().cast_signed())];
                 for t in &row.mutable_tables {
                     vals.push(LuaValue::Table(t.clone()));
                 }
@@ -88,6 +88,7 @@ impl LuaUserData for QuerySnapshot {
     }
 }
 
+/// # Errors
 pub fn snapshot_query(
     world: &mut World,
     pool: &EngineStringPool,
@@ -150,6 +151,7 @@ pub fn snapshot_query(
     })
 }
 
+/// # Errors
 pub fn writeback_snapshot(
     world: &mut World,
     pool: &mut EngineStringPool,

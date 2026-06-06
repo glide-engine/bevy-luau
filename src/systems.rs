@@ -9,6 +9,7 @@ use crate::runtime::{LuaObserverDescriptor, LuaParam, LuaSystemDescriptor, Scrip
 use crate::schema::{SchemaRegistry, extract_resource_table, writeback_resource_table};
 use crate::types::LuaSchedule;
 
+/// # Panics
 pub fn lua_startup_system(world: &mut World) {
     let runtime = world.remove_non_send::<ScriptingRuntime>().unwrap();
     let mut pool = world.remove_non_send::<EngineStringPool>().unwrap();
@@ -31,6 +32,7 @@ pub fn lua_startup_system(world: &mut World) {
     world.insert_non_send(pool);
 }
 
+/// # Panics
 pub fn lua_update_system(world: &mut World) {
     let runtime = world.remove_non_send::<ScriptingRuntime>().unwrap();
     let mut pool = world.remove_non_send::<EngineStringPool>().unwrap();
@@ -53,6 +55,7 @@ pub fn lua_update_system(world: &mut World) {
     world.insert_non_send(pool);
 }
 
+/// # Panics
 pub fn run_lua_system(
     world: &mut World,
     lua: &Lua,
@@ -60,7 +63,7 @@ pub fn run_lua_system(
     observers: &[LuaObserverDescriptor],
     system: &LuaSystemDescriptor,
 ) {
-    let delta_secs = world.resource::<Time>().delta_secs() as f64;
+    let delta_secs = f64::from(world.resource::<Time>().delta_secs());
     let elapsed_secs = world.resource::<Time>().elapsed().as_secs_f64();
 
     let mut cmd_buffer = CommandBuffer::default();
@@ -88,8 +91,10 @@ pub fn run_lua_system(
                 }
                 LuaParam::Resource(id) => extract_resource_table(&registry, pool, lua, *id)
                     .unwrap()
-                    .map(LuaValue::Table)
-                    .unwrap_or_else(|| LuaValue::Table(lua.create_table().unwrap())),
+                    .map_or_else(
+                        || LuaValue::Table(lua.create_table().unwrap()),
+                        LuaValue::Table,
+                    ),
             });
         }
 
@@ -118,6 +123,7 @@ pub fn run_lua_system(
     flush_commands(world, pool, lua, cmd_buffer, observers);
 }
 
+/// # Panics
 pub fn run_lua_observer(
     world: &mut World,
     pool: &mut EngineStringPool,
@@ -132,7 +138,7 @@ pub fn run_lua_observer(
 
     world.resource_scope(|world, registry: Mut<SchemaRegistry>| {
         let mut args = vec![
-            LuaValue::Integer(entity.to_bits() as i64),
+            LuaValue::Integer(entity.to_bits().cast_signed()),
             LuaValue::Table(event_data.clone()),
         ];
 

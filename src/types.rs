@@ -12,6 +12,8 @@ pub enum LuauFieldType {
 }
 
 impl LuauFieldType {
+    /// # Panics
+    #[must_use]
     pub fn layout(self) -> Layout {
         match self {
             Self::Bool => Layout::new::<bool>(),
@@ -30,6 +32,6 @@ pub enum LuaSchedule {
     Update,
 }
 
-pub(crate) fn align_up(offset: usize, align: usize) -> usize {
+pub(crate) const fn align_up(offset: usize, align: usize) -> usize {
     (offset + align - 1) & !(align - 1)
 }

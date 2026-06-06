@@ -51,7 +51,9 @@ impl LuaUserData for LuaCommandsHandle {
 
         methods.add_method("Despawn", |_, this, entity_bits: i64| {
             let buffer = unsafe { &mut *this.0 };
-            buffer.despawns.push(Entity::from_bits(entity_bits as u64));
+            buffer
+                .despawns
+                .push(Entity::from_bits(entity_bits.cast_unsigned()));
             Ok(())
         });
 
@@ -59,7 +61,7 @@ impl LuaUserData for LuaCommandsHandle {
             "Trigger",
             |_, this, (entity_bits, event_ud, data): (i64, LuaAnyUserData, LuaTable)| {
                 let buffer = unsafe { &mut *this.0 };
-                let entity = Entity::from_bits(entity_bits as u64);
+                let entity = Entity::from_bits(entity_bits.cast_unsigned());
                 let event_id = event_ud.borrow::<LuaComponentMarker>()?.component_id()?;
                 buffer.triggers.push(TriggerCmd {
                     entity,

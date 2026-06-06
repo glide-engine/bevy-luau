@@ -15,6 +15,7 @@ pub struct LuaComponentMarker {
 }
 
 impl LuaComponentMarker {
+    /// # Errors
     pub fn component_id(&self) -> LuaResult<ComponentId> {
         self.resolved_id
             .ok_or_else(|| LuaError::runtime("component marker not yet resolved"))
@@ -132,13 +133,14 @@ impl LuaUserData for EcsHandle {
         methods.add_method("Query", |lua, _, def: LuaTable| {
             let read_staging_ids = |key: &str| -> LuaResult<Vec<usize>> {
                 let t: Option<LuaTable> = def.get(key)?;
-                match t {
-                    Some(t) => t
-                        .sequence_values::<LuaAnyUserData>()
-                        .map(|v| Ok(v?.borrow::<LuaComponentMarker>()?.staging_idx))
-                        .collect(),
-                    None => Ok(Vec::new()),
-                }
+                t.map_or_else(
+                    || Ok(Vec::new()),
+                    |t| {
+                        t.sequence_values::<LuaAnyUserData>()
+                            .map(|v| Ok(v?.borrow::<LuaComponentMarker>()?.staging_idx))
+                            .collect()
+                    },
+                )
             };
             lua.create_userdata(QueryDescHandle(StagedQuery {
                 mutable: read_staging_ids("Mutable")?,
@@ -275,6 +277,36 @@ fn resolve_param(param: StagedParam, real_ids: &[ComponentId]) -> LuaParam {
     }
 }
 
+fn set_globals(lua: &Lua) {
+    let globals = lua.globals();
+
+    let require_fn = lua
+        .create_require_function(LuauResolver::default())
+        .unwrap();
+
+    globals.set("require", require_fn).unwrap();
+
+    globals
+        .set(
+            "print",
+            lua.create_function(|_, args: LuaMultiValue| {
+                let log_message = args
+                    .into_iter()
+                    .map(|v| v.to_string().unwrap_or_else(|_| "unknown".to_string()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                info!(target: "bevy_luau::script", "{log_message}");
+                Ok(())
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+    let ecs = lua.create_userdata(EcsHandle).unwrap();
+    globals.set("Ecs", ecs).unwrap();
+}
+
+/// # Panics
 pub fn load_scripts(world: &mut World) {
     let mut runtime = world
         .remove_non_send::<ScriptingRuntime>()
@@ -295,35 +327,7 @@ pub fn load_scripts(world: &mut World) {
         .lua
         .set_app_data(ScriptLoadCtx(std::ptr::addr_of_mut!(ctx)));
 
-    let globals = runtime.lua.globals();
-
-    let require_fn = runtime
-        .lua
-        .create_require_function(LuauResolver::default())
-        .unwrap();
-
-    globals.set("require", require_fn).unwrap();
-
-    globals
-        .set(
-            "print",
-            runtime
-                .lua
-                .create_function(|_, args: LuaMultiValue| {
-                    let log_message = args
-                        .into_iter()
-                        .map(|v| v.to_string().unwrap_or_else(|_| "unknown".to_string()))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    info!(target: "bevy_luau::script", "{log_message}");
-                    Ok(())
-                })
-                .unwrap(),
-        )
-        .unwrap();
-
-    let ecs = runtime.lua.create_userdata(EcsHandle).unwrap();
-    globals.set("Ecs", ecs).unwrap();
+    set_globals(&runtime.lua);
 
     match std::fs::read_to_string("assets/scripts/main.luau") {
         Ok(source) => {

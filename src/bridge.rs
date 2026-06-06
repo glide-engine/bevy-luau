@@ -14,6 +14,8 @@ pub struct DynamicComponentBridge;
 
 impl DynamicComponentBridge {
     /// # Safety
+    /// # Panics
+    /// # Errors
     pub unsafe fn insert_from_table(
         world: &mut World,
         entity: Entity,
@@ -38,20 +40,22 @@ impl DynamicComponentBridge {
             let field_ptr = unsafe { scratch.add(offset) };
             match (table.raw_get::<LuaValue>(lua_str)?, ft) {
                 (LuaValue::Boolean(b), LuauFieldType::Bool) => unsafe {
-                    std::ptr::write(field_ptr.cast::<bool>(), b)
+                    std::ptr::write(field_ptr.cast::<bool>(), b);
                 },
                 (LuaValue::Integer(i), LuauFieldType::Integer) => unsafe {
-                    std::ptr::write(field_ptr.cast::<i64>(), i)
+                    field_ptr.cast::<i64>().write_unaligned(i);
                 },
                 (LuaValue::Number(n), LuauFieldType::Number) => unsafe {
-                    std::ptr::write(field_ptr.cast::<f64>(), n)
+                    field_ptr.cast::<f64>().write_unaligned(n);
                 },
                 (LuaValue::Vector(v), LuauFieldType::Vector4) => unsafe {
-                    std::ptr::write(field_ptr.cast::<[f32; 4]>(), [v.x(), v.y(), v.z(), v.w()])
+                    field_ptr
+                        .cast::<[f32; 4]>()
+                        .write_unaligned([v.x(), v.y(), v.z(), v.w()]);
                 },
                 (LuaValue::String(s), LuauFieldType::String) => {
                     let sp = pool.intern(lua, s.to_str()?.as_ref());
-                    unsafe { std::ptr::write(field_ptr.cast::<Spur>(), sp) };
+                    unsafe { field_ptr.cast::<Spur>().write_unaligned(sp) };
                 }
                 (LuaValue::Buffer(b), LuauFieldType::Buffer(len)) => unsafe {
                     std::ptr::copy_nonoverlapping(
@@ -71,6 +75,7 @@ impl DynamicComponentBridge {
     }
 
     /// # Safety
+    /// # Panics
     pub unsafe fn insert_default(
         world: &mut World,
         entity: Entity,
@@ -92,6 +97,7 @@ impl DynamicComponentBridge {
     }
 
     /// # Safety
+    /// # Errors
     pub unsafe fn extract_to_table(
         world: &World,
         entity: Entity,
@@ -115,20 +121,20 @@ impl DynamicComponentBridge {
             let field_ptr = unsafe { raw.add(offset) };
             match ft {
                 LuauFieldType::Bool => {
-                    table.raw_set(lua_str, unsafe { *field_ptr.cast::<bool>() })?
+                    table.raw_set(lua_str, unsafe { *field_ptr.cast::<bool>() })?;
                 }
                 LuauFieldType::Integer => {
-                    table.raw_set(lua_str, unsafe { *field_ptr.cast::<i64>() })?
+                    table.raw_set(lua_str, unsafe { field_ptr.cast::<i64>().read_unaligned() })?;
                 }
                 LuauFieldType::Number => {
-                    table.raw_set(lua_str, unsafe { *field_ptr.cast::<f64>() })?
+                    table.raw_set(lua_str, unsafe { field_ptr.cast::<f64>().read_unaligned() })?;
                 }
                 LuauFieldType::Vector4 => {
-                    let v = unsafe { *field_ptr.cast::<[f32; 4]>() };
+                    let v = unsafe { field_ptr.cast::<[f32; 4]>().read_unaligned() };
                     table.raw_set(lua_str, mluau::Vector::new(v[0], v[1], v[2], v[3]))?;
                 }
                 LuauFieldType::String => {
-                    let sp = unsafe { *field_ptr.cast::<Spur>() };
+                    let sp = unsafe { field_ptr.cast::<Spur>().read_unaligned() };
                     table.raw_set(lua_str, pool.get_lua_str(sp))?;
                 }
                 LuauFieldType::Buffer(len) => {

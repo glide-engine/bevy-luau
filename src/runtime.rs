@@ -41,7 +41,7 @@ pub struct ScriptingRuntime {
 
 impl Default for ScriptingRuntime {
     fn default() -> Self {
-        ScriptingRuntime {
+        Self {
             lua: Lua::new(),
             systems: Vec::new(),
             observers: Vec::new(),
@@ -109,7 +109,10 @@ impl LuaRequire for LuauResolver {
         };
 
         let source = std::fs::read_to_string(&file_path).map_err(|e| {
-            LuaError::RuntimeError(format!("Failed to read module {:?}: {}", file_path, e))
+            LuaError::RuntimeError(format!(
+                "Failed to read module {}: {e}",
+                file_path.display()
+            ))
         })?;
 
         lua.load(&source)
