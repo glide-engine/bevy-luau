@@ -1,6 +1,7 @@
 use bevy::{ecs::component::ComponentId, prelude::*};
 use mluau::prelude::*;
 use smallvec::SmallVec;
+use smol_str::{SmolStr, format_smolstr};
 
 use crate::pool::EngineStringPool;
 use crate::runtime::{
@@ -70,7 +71,7 @@ pub(crate) struct StagedObserver {
 }
 
 pub(crate) struct ComponentBlueprint {
-    pub name: String,
+    pub name: SmolStr,
     pub fields: Vec<(lasso::Spur, LuauFieldType)>,
     pub is_resource: bool,
 }
@@ -200,7 +201,7 @@ fn register_schema(
             "__lua_comp"
         };
         ctx.pending_components.push(ComponentBlueprint {
-            name: format!("{prefix}_{index}"),
+            name: format_smolstr!("{prefix}_{index}"),
             fields,
             is_resource,
         });

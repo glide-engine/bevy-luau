@@ -19,6 +19,7 @@ function OnHitObserver(entity, hit, Commands, HealthQuery)
 		if hp.current <= 0 then
 			Commands:Trigger(entity, OnDeath, {})
 		end
+		print("enemy", entity, "got hit for", hit.damage, "leaving", hp.current, "hp")
 	end
 end
 
@@ -30,7 +31,7 @@ Ecs:Observe(OnHit, OnHitObserver, { Ecs:Commands(), HealthQuery })
 Ecs:Observe(OnDeath, OnDeathObserver, { Ecs:Commands() })
 
 function Setup(Commands, Score)
-	for i = 1, 3000 do
+	for i = 1, 30000 do
 		Commands:Spawn({
 			[EnemyTag] = Ecs:Default(),
 			[Health] = Ecs:Default(),
@@ -58,8 +59,6 @@ function Update(Time, Commands, MoveQuery) -- values snapshotted from rust
 
 		Commands:Trigger(entity, OnHit, { damage = math.random(0, 100) }) -- puts in a queue and flushes when function ends
 		Commands:Trigger(entity, OnHit, { damage = math.random(0, 100) })
-
-		print("update:", entity)
 	end
 end
 

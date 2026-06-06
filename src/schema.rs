@@ -4,6 +4,7 @@ use bevy::{
 };
 use lasso::Spur;
 use mluau::prelude::*;
+use smol_str::SmolStr;
 use std::{
     alloc::Layout,
     collections::{HashMap, HashSet},
@@ -14,14 +15,14 @@ use crate::types::{LuauFieldType, align_up};
 
 #[derive(Debug)]
 pub struct DynamicComponentSchema {
-    pub name: String,
+    pub name: SmolStr,
     pub fields: HashMap<Spur, (usize, LuauFieldType)>,
     pub layout: Layout,
 }
 
 #[derive(Resource, Default)]
 pub struct SchemaRegistry {
-    pub name_to_id: HashMap<String, ComponentId>,
+    pub name_to_id: HashMap<SmolStr, ComponentId>,
     pub id_to_schema: HashMap<ComponentId, DynamicComponentSchema>,
     pub resource_ids: HashSet<ComponentId>,
     pub resource_data: HashMap<ComponentId, Vec<u8>>,
@@ -31,7 +32,7 @@ impl SchemaRegistry {
     /// # Panics
     #[must_use]
     pub fn build(
-        name: String,
+        name: SmolStr,
         fields: &[(Spur, LuauFieldType)],
     ) -> (DynamicComponentSchema, ComponentDescriptor) {
         let mut offset = 0usize;
@@ -60,7 +61,7 @@ impl SchemaRegistry {
 
         let descriptor = unsafe {
             ComponentDescriptor::new_with_layout(
-                name,
+                name.to_string(),
                 StorageType::Table,
                 layout,
                 None,
