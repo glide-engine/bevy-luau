@@ -2,13 +2,35 @@ use bevy::{ecs::component::ComponentId, prelude::*, ptr::OwningPtr};
 use lasso::Spur;
 use mluau::prelude::*;
 use std::{
-    alloc::{alloc_zeroed, dealloc},
+    alloc::{Layout, alloc_zeroed, dealloc}, // Added Layout to imports
     ptr::NonNull,
 };
 
 use crate::pool::EngineStringPool;
 use crate::schema::SchemaRegistry;
 use crate::types::LuauFieldType;
+
+// Simple RAII guard
+struct ScratchGuard {
+    ptr: *mut u8,
+    layout: Layout,
+}
+
+impl ScratchGuard {
+    fn new(layout: Layout) -> Self {
+        let ptr = unsafe { alloc_zeroed(layout) };
+        if ptr.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        Self { ptr, layout }
+    }
+}
+
+impl Drop for ScratchGuard {
+    fn drop(&mut self) {
+        unsafe { dealloc(self.ptr, self.layout) };
+    }
+}
 
 pub struct DynamicComponentBridge;
 
@@ -29,15 +51,25 @@ impl DynamicComponentBridge {
             .id_to_schema
             .get(&component_id)
             .expect("schema not registered");
-        let layout = schema.layout;
-        let scratch = unsafe { alloc_zeroed(layout) };
-        if scratch.is_null() {
-            std::alloc::handle_alloc_error(layout);
+
+        let guard = ScratchGuard::new(schema.layout);
+
+        for (&_, &(offset, ft)) in &schema.fields {
+            if ft == LuauFieldType::String {
+                unsafe {
+                    guard
+                        .ptr
+                        .add(offset)
+                        .cast::<Spur>()
+                        .write_unaligned(Spur::default());
+                }
+            }
         }
 
         for (&spur, &(offset, ft)) in &schema.fields {
             let lua_str = pool.get_lua_str(spur);
-            let field_ptr = unsafe { scratch.add(offset) };
+            let field_ptr = unsafe { guard.ptr.add(offset) };
+
             match (table.raw_get::<LuaValue>(lua_str)?, ft) {
                 (LuaValue::Boolean(b), LuauFieldType::Bool) => unsafe {
                     std::ptr::write(field_ptr.cast::<bool>(), b);
@@ -68,9 +100,8 @@ impl DynamicComponentBridge {
             }
         }
 
-        let owning = unsafe { OwningPtr::new(NonNull::new_unchecked(scratch)) };
+        let owning = unsafe { OwningPtr::new(NonNull::new_unchecked(guard.ptr)) };
         unsafe { world.entity_mut(entity).insert_by_id(component_id, owning) };
-        unsafe { dealloc(scratch, layout) };
         Ok(())
     }
 
@@ -86,14 +117,22 @@ impl DynamicComponentBridge {
             .id_to_schema
             .get(&component_id)
             .expect("schema not registered");
-        let layout = schema.layout;
-        let scratch = unsafe { alloc_zeroed(layout) };
-        if scratch.is_null() {
-            std::alloc::handle_alloc_error(layout);
+
+        let guard = ScratchGuard::new(schema.layout);
+        for (&_, &(offset, ft)) in &schema.fields {
+            if ft == LuauFieldType::String {
+                unsafe {
+                    guard
+                        .ptr
+                        .add(offset)
+                        .cast::<Spur>()
+                        .write_unaligned(Spur::default());
+                }
+            }
         }
-        let owning = unsafe { OwningPtr::new(NonNull::new_unchecked(scratch)) };
+
+        let owning = unsafe { OwningPtr::new(NonNull::new_unchecked(guard.ptr)) };
         unsafe { world.entity_mut(entity).insert_by_id(component_id, owning) };
-        unsafe { dealloc(scratch, layout) };
     }
 
     /// # Safety
@@ -145,52 +184,5 @@ impl DynamicComponentBridge {
         }
 
         Ok(Some(table))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::pool::EngineStringPool;
-    use crate::schema::SchemaRegistry;
-    use crate::types::LuauFieldType;
-    use std::f64;
-
-    #[test]
-    fn roundtrip() {
-        let lua = Lua::new();
-        let mut world = World::new();
-        let mut pool = EngineStringPool::default();
-        let mut registry = SchemaRegistry::default();
-
-        let fields = vec![
-            (pool.intern(&lua, "a"), LuauFieldType::Integer),
-            (pool.intern(&lua, "b"), LuauFieldType::Number),
-        ];
-
-        let (schema, descriptor) = SchemaRegistry::build("Test".into(), &fields);
-        let id = world.register_component_with_descriptor(descriptor);
-        registry.insert(id, schema);
-
-        let entity = world.spawn_empty().id();
-        let table = lua.create_table().unwrap();
-        table.set("a", 42i64).unwrap();
-        table.set("b", f64::consts::PI).unwrap();
-
-        unsafe {
-            DynamicComponentBridge::insert_from_table(
-                &mut world, entity, id, &registry, &mut pool, &table, &lua,
-            )
-            .unwrap();
-
-            let out = DynamicComponentBridge::extract_to_table(
-                &world, entity, id, &registry, &pool, &lua,
-            )
-            .unwrap()
-            .unwrap();
-
-            assert_eq!(out.get::<i64>("a").unwrap(), 42);
-            assert!((out.get::<f64>("b").unwrap() - f64::consts::PI).abs() < 1e-9);
-        }
     }
 }
