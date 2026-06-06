@@ -18,7 +18,7 @@ use loading::load_scripts;
 use pool::EngineStringPool;
 use runtime::ScriptingRuntime;
 use schema::SchemaRegistry;
-use systems::{lua_startup_system, lua_update_system};
+use systems::{FrameArena, lua_startup_system, lua_update_system, reset_frame_arena};
 
 pub struct ScriptingPlugin;
 
@@ -27,6 +27,8 @@ impl Plugin for ScriptingPlugin {
         app.init_non_send::<ScriptingRuntime>()
             .init_non_send::<EngineStringPool>()
             .init_resource::<SchemaRegistry>()
+            .init_non_send::<FrameArena>()
+            .add_systems(PreUpdate, reset_frame_arena)
             .add_systems(Startup, (load_scripts, lua_startup_system).chain())
             .add_systems(Update, lua_update_system);
     }

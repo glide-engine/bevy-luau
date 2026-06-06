@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bumpalo::Bump;
 use mluau::prelude::*;
 use smallvec::SmallVec;
 
@@ -10,50 +11,67 @@ use crate::runtime::{LuaObserverDescriptor, LuaParam, LuaSystemDescriptor, Scrip
 use crate::schema::{SchemaRegistry, extract_resource_table, writeback_resource_table};
 use crate::types::LuaSchedule;
 
+#[derive(Default)]
+pub struct FrameArena(pub Bump);
+
+pub fn reset_frame_arena(mut arena: NonSendMut<FrameArena>) {
+    arena.0.reset();
+}
+
 /// # Panics
 pub fn lua_startup_system(world: &mut World) {
-    let runtime = world.remove_non_send::<ScriptingRuntime>().unwrap();
-    let mut pool = world.remove_non_send::<EngineStringPool>().unwrap();
+    let arena = world.remove_non_send::<FrameArena>().unwrap();
+    let runtime = world.remove_non_send::<ScriptingRuntime>();
+    let pool = world.remove_non_send::<EngineStringPool>();
 
-    let indices: SmallVec<[usize; 4]> = (0..runtime.systems.len())
-        .filter(|&i| matches!(runtime.systems[i].schedule, LuaSchedule::Startup))
-        .collect();
+    if let (Some(runtime), Some(mut pool)) = (runtime, pool) {
+        let indices: SmallVec<[usize; 4]> = (0..runtime.systems.len())
+            .filter(|&i| matches!(runtime.systems[i].schedule, LuaSchedule::Startup))
+            .collect();
 
-    for i in indices {
-        run_lua_system(
-            world,
-            &runtime.lua,
-            &mut pool,
-            &runtime.observers,
-            &runtime.systems[i],
-        );
+        for i in indices {
+            run_lua_system(
+                world,
+                &runtime.lua,
+                &mut pool,
+                &arena.0,
+                &runtime.observers,
+                &runtime.systems[i],
+            );
+        }
+
+        world.insert_non_send(runtime);
+        world.insert_non_send(pool);
     }
-
-    world.insert_non_send(runtime);
-    world.insert_non_send(pool);
+    world.insert_non_send(arena);
 }
 
 /// # Panics
 pub fn lua_update_system(world: &mut World) {
-    let runtime = world.remove_non_send::<ScriptingRuntime>().unwrap();
-    let mut pool = world.remove_non_send::<EngineStringPool>().unwrap();
+    let arena = world.remove_non_send::<FrameArena>().unwrap();
+    let runtime = world.remove_non_send::<ScriptingRuntime>();
+    let pool = world.remove_non_send::<EngineStringPool>();
 
-    let indices: SmallVec<[usize; 4]> = (0..runtime.systems.len())
-        .filter(|&i| matches!(runtime.systems[i].schedule, LuaSchedule::Update))
-        .collect();
+    if let (Some(runtime), Some(mut pool)) = (runtime, pool) {
+        let indices: SmallVec<[usize; 4]> = (0..runtime.systems.len())
+            .filter(|&i| matches!(runtime.systems[i].schedule, LuaSchedule::Update))
+            .collect();
 
-    for i in indices {
-        run_lua_system(
-            world,
-            &runtime.lua,
-            &mut pool,
-            &runtime.observers,
-            &runtime.systems[i],
-        );
+        for i in indices {
+            run_lua_system(
+                world,
+                &runtime.lua,
+                &mut pool,
+                &arena.0,
+                &runtime.observers,
+                &runtime.systems[i],
+            );
+        }
+
+        world.insert_non_send(runtime);
+        world.insert_non_send(pool);
     }
-
-    world.insert_non_send(runtime);
-    world.insert_non_send(pool);
+    world.insert_non_send(arena);
 }
 
 /// # Panics
@@ -61,6 +79,7 @@ pub fn run_lua_system(
     world: &mut World,
     lua: &Lua,
     pool: &mut EngineStringPool,
+    bump: &Bump,
     observers: &[LuaObserverDescriptor],
     system: &LuaSystemDescriptor,
 ) {
@@ -87,7 +106,7 @@ pub fn run_lua_system(
                     .map(LuaValue::UserData)
                     .unwrap(),
                 LuaParam::Query(desc) => {
-                    let snap = snapshot_query(world, pool, &registry, lua, desc).unwrap();
+                    let snap = snapshot_query(world, pool, &registry, lua, desc, bump).unwrap();
                     lua.create_userdata(snap).map(LuaValue::UserData).unwrap()
                 }
                 LuaParam::Resource(id) => extract_resource_table(&registry, pool, lua, *id)
@@ -109,8 +128,11 @@ pub fn run_lua_system(
         for (param, val) in system.params.iter().zip(args.iter()) {
             match (param, val) {
                 (LuaParam::Query(_), LuaValue::UserData(ud)) => {
-                    if let Ok(snap) = ud.borrow::<QuerySnapshot>() {
+                    if let Ok(mut snap) = ud.borrow_mut::<QuerySnapshot>() {
                         writeback_snapshot(world, pool, &registry, lua, &snap).ok();
+                        let mut rows = std::mem::take(&mut snap.rows);
+                        rows.clear();
+                        pool.query_scratchpad = rows;
                     }
                 }
                 (LuaParam::Resource(id), LuaValue::Table(t)) => {
@@ -121,7 +143,7 @@ pub fn run_lua_system(
         }
     });
 
-    flush_commands(world, pool, lua, cmd_buffer, observers);
+    flush_commands(world, pool, lua, cmd_buffer, observers, bump);
 }
 
 /// # Panics
@@ -129,6 +151,7 @@ pub fn run_lua_observer(
     world: &mut World,
     pool: &mut EngineStringPool,
     lua: &Lua,
+    bump: &Bump,
     observer: &LuaObserverDescriptor,
     entity: Entity,
     event_data: &LuaTable,
@@ -149,7 +172,7 @@ pub fn run_lua_observer(
                     .map(LuaValue::UserData)
                     .unwrap(),
                 LuaParam::Query(desc) => {
-                    let snap = snapshot_query(world, pool, &registry, lua, desc).unwrap();
+                    let snap = snapshot_query(world, pool, &registry, lua, desc, bump).unwrap();
                     lua.create_userdata(snap).map(LuaValue::UserData).unwrap()
                 }
                 _ => LuaValue::Nil,
@@ -165,20 +188,24 @@ pub fn run_lua_observer(
 
         for (param, val) in observer.params.iter().zip(args[2..].iter()) {
             if let (LuaParam::Query(_), LuaValue::UserData(ud)) = (param, val)
-                && let Ok(snap) = ud.borrow::<QuerySnapshot>()
+                && let Ok(mut snap) = ud.borrow_mut::<QuerySnapshot>()
             {
                 writeback_snapshot(world, pool, &registry, lua, &snap).ok();
+                let mut rows = std::mem::take(&mut snap.rows);
+                rows.clear();
+                pool.query_scratchpad = rows;
             }
         }
     });
 
-    flush_commands(world, pool, lua, cmd_buffer, observers);
+    flush_commands(world, pool, lua, cmd_buffer, observers, bump);
 }
 
 fn dispatch_trigger(
     world: &mut World,
     pool: &mut EngineStringPool,
     lua: &Lua,
+    bump: &Bump,
     trigger: TriggerCmd,
     observers: &[LuaObserverDescriptor],
 ) {
@@ -194,6 +221,7 @@ fn dispatch_trigger(
             world,
             pool,
             lua,
+            bump,
             &observers[idx],
             trigger.entity,
             &trigger.data_table,
@@ -208,6 +236,7 @@ fn flush_commands(
     lua: &Lua,
     buffer: CommandBuffer,
     observers: &[LuaObserverDescriptor],
+    bump: &Bump,
 ) {
     world.resource_scope(|world, registry: Mut<SchemaRegistry>| {
         for spawn in buffer.spawns {
@@ -233,6 +262,6 @@ fn flush_commands(
     }
 
     for trigger in buffer.triggers {
-        dispatch_trigger(world, pool, lua, trigger, observers);
+        dispatch_trigger(world, pool, lua, bump, trigger, observers);
     }
 }

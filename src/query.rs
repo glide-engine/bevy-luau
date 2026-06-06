@@ -2,6 +2,7 @@ use bevy::{
     ecs::{query::QueryBuilder, world::FilteredEntityMut},
     prelude::*,
 };
+use bumpalo::{Bump, collections::Vec as BumpVec};
 use mluau::prelude::*;
 use smallvec::SmallVec;
 
@@ -89,13 +90,15 @@ impl LuaUserData for QuerySnapshot {
     }
 }
 
+/// # Panics
 /// # Errors
 pub fn snapshot_query(
     world: &mut World,
-    pool: &EngineStringPool,
+    pool: &mut EngineStringPool,
     registry: &SchemaRegistry,
     lua: &Lua,
     desc: &ResolvedQuery,
+    bump: &Bump,
 ) -> LuaResult<QuerySnapshot> {
     let mut builder = QueryBuilder::<FilteredEntityMut>::new(world);
     for &id in &desc.mutable {
@@ -112,10 +115,14 @@ pub fn snapshot_query(
     }
 
     let mut state = builder.build();
-    let entities: Vec<Entity> = state.iter_mut(world).map(|e| e.id()).collect();
+    let mut entities = BumpVec::with_capacity_in(state.iter_mut(world).len(), bump);
+    for e in state.iter_mut(world) {
+        entities.push(e.id());
+    }
     drop(state);
 
-    let mut rows = Vec::with_capacity(entities.len());
+    let mut rows = std::mem::take(&mut pool.query_scratchpad);
+
     for entity in entities {
         let mut mutable_tables = SmallVec::new();
         let mut immutable_tables = SmallVec::new();
@@ -152,6 +159,7 @@ pub fn snapshot_query(
     })
 }
 
+/// # Panics
 /// # Errors
 pub fn writeback_snapshot(
     world: &mut World,
